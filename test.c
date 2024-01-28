@@ -35,9 +35,6 @@ typedef enum {
 	ARROW_DOWN = 1003,
 	PAGE_UP = 1004,
 	PAGE_DOWN = 1005,
-	HOME = 1006,
-	END = 1007,
-	DEL = 1008,
 } splKeys;
 void err(const char *s)
 {
@@ -110,44 +107,18 @@ int readKey()
     }
 	if(c == '\x1b')
 	{
-		//If escape sequence is detected then read two more bytes
-		//Page down and up 4 bytes. esc[5~ esc[6~
-		//Arrow keys 3 bytes esc[A esc[B esc[C esc[D
-		char seq[3]; 
+		char seq[3]; //0->[ 1->
 		if(read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
 		if(read(STDIN_FILENO, &seq[1] , 1) != 1) return '\x1b';
 		if(seq[0] == '[') 
 		{
-			if(seq[1] >= '0' && seq[1] <= '9')
+			
+			switch(seq[1])
 			{
-				if(read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b'; 
-				//If third byte not there return esc
-				if(seq[2] == '~') //Page up and down ends etc etc with ~
-				{
-					switch(seq[1])
-					{
-						case '5': return PAGE_UP;
-						case '6': return PAGE_DOWN;
-						case '1':
-						case '7': return HOME;
-						case '4':
-						case '8': return END;
-						case '3': return DEL;
-					}
-				}
-
-			}
-			else
-			{
-				switch(seq[1])
-				{
-					case 'A': return ARROW_UP;
-					case 'B': return ARROW_DOWN;
-					case 'C': return ARROW_RIGHT;
-					case 'D': return ARROW_LEFT;
-					case 'H': return HOME;
-					case 'F': return END;
-				}
+        		case 'A': return ARROW_UP;
+        		case 'B': return ARROW_DOWN;
+        		case 'C': return ARROW_RIGHT;
+        		case 'D': return ARROW_LEFT;
 			}
 		} 
 		return '\x1b';
@@ -190,18 +161,6 @@ void processKeyPress()
 			write(STDOUT_FILENO, "\x1b[2J", 4);
       		write(STDOUT_FILENO, "\x1b[H", 3);
 			exit(0);
-		case HOME:
-			config.cx = 0;
-			break;
-		case END:
-			config.cx = config.screencols-1;
-			break;
-		case PAGE_DOWN:
-			config.cy = config.screenrows-1;
-			break;
-		case PAGE_UP:
-			config.cy = 0;
-			break;
 		case ARROW_UP:
 		case ARROW_DOWN:
 		case ARROW_LEFT:
@@ -339,9 +298,14 @@ int main()
 	enableRawMode();
 	initEditor();
 	// printf("%d %d\r\n", config.screencols, config.screenrows);
-	while(1)
-	{
-		refreshScreen();
-		processKeyPress();
-	}
+    char c; 
+    while (c != 'q') {
+        read(STDIN_FILENO, &c, 1);
+        if (iscntrl(c)) {
+        printf("%d\r\n", c);
+        } else {
+        printf("%d ('%c')\r\n", c, c);
+        }
+  }
+  return 0;
 }
