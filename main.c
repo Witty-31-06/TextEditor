@@ -49,7 +49,7 @@ typedef struct estate
 	int numrow;
 	int colOff;
 	int rowOff; //for scrolling
-	erow *row;
+	erow *row; //Stores a row of text from the filee
 	terminal original;
 } editorState;
 editorState config;
@@ -139,13 +139,13 @@ void editorOpen(char *filename)
 	char *line = NULL;
 	size_t linecap = 0;
 	ssize_t linelen;
-	while((linelen = getline(&line, &linecap, fp)) != -1)
+	while((linelen = getline(&line, &linecap, fp)) != -1) //read till EOF
 	{
-		while(linelen > 0 && (line[linelen-1] == '\r' || line[linelen-1] == '\n'))
+		while(linelen > 0 && (line[linelen-1] == '\r' || line[linelen-1] == '\n')) //trim /r/n
 		{
 			linelen--;
 		}
-		appendRow(line, linelen);
+		appendRow(line, linelen); //Insert the line in row struct
 	}
 	
 	free(line);
@@ -254,10 +254,25 @@ int readKey()
  */
 void moveCursor(int key)
 {
+	erow *row;
+	if(config.cy >= config.numrow)
+	{
+		row = NULL; //If cursor moves past end of file, row is null
+	}
+	else
+	{
+		row = &config.row[config.cy]; //else row points to the current line in the file
+	}
 	switch(key)
 	{
 		case ARROW_LEFT:
 			if(config.cx != 0) config.cx--;
+			else if(config.cy > 0) 
+			{
+				//moving cursor to end of prev line
+				config.cy--;
+				config.cx = config.row[config.cy].size;
+			}
 			break;
 		case ARROW_UP:
 			if(config.cy != 0) config.cy--;
@@ -266,9 +281,23 @@ void moveCursor(int key)
 			if(config.cy < config.numrow) config.cy++;
 			break;
 		case ARROW_RIGHT:
-			config.cx++;
+			if(row && config.cx < row->size)
+				config.cx++; //increment cx only till length of the current row
+			else if (row && config.cx == row->size)
+			{
+				config.cy++;
+				config.cx = 0;
+			}
+			
 			break;
 	}
+
+	//Since after moving from a long line to 
+	//a shorter line cx remains same as that of position in longer line we need to
+	//modify cx
+	row = (config.cy>=config.numrow) ? NULL:&config.row[config.cy];
+	int rowlen = row ? row->size: 0;
+	if(config.cx > rowlen) config.cx = rowlen;
 }
 
 /**
