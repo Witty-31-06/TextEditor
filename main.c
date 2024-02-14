@@ -1,9 +1,10 @@
-#define _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 
 #define _BSD_SOURCE
 #define _GNU_SOURCE
 #define VER "1.0"
 #define TABSIZE 4
 #define QUIT_TIME 2
+
 #include <unistd.h>
 #include <termios.h>
 #include <stdlib.h>
@@ -72,7 +73,7 @@ editorState config;
 /***prototype*/
 void setStatusMsg(const char *fmt, ...);
 void refreshScreen();
-char *promptUser(char *prompt);
+char *promptUser(char *prompt, void(*callback)(char *, int));
 
 /**
  * @brief Outputs the error in screen and exits
@@ -131,7 +132,7 @@ void enableRawMode()
 /**row operations**/
 
 
-int CxToRx(erow *row, int cx)
+int RowCxToRx(erow *row, int cx)
 {
     int rx = 0;
     int j;
@@ -145,6 +146,19 @@ int CxToRx(erow *row, int cx)
     }
     return rx;
 }
+
+int RowRxToCx(erow *row, int rx) {
+  int cur_rx = 0;
+  int cx;
+  for (cx = 0; cx < row->size; cx++) {
+    if (row->chars[cx] == '\t')
+      cur_rx += (TABSIZE - 1) - (cur_rx % TABSIZE);
+    cur_rx++;
+    if (cur_rx > rx) return cx;
+  }
+  return cx;
+}
+
 void updateRow(erow *row) {
     int tabs = 0;
     int j;
@@ -316,7 +330,7 @@ void saveFile()
 {
     if(config.filename == NULL)
     {
-        config.filename = promptUser("Save as: %s (ESC to Cancel)");
+        config.filename = promptUser("Save as: %s (ESC to Cancel)", NULL);
         if(config.filename == NULL)
         {
             setStatusMsg("Save Aborted");
@@ -373,6 +387,81 @@ void editorOpen(char *filename)
     config.dirty = 0;
     fclose(fp);
 }
+
+/**FIND**/
+
+void findCallback(char *query, int key)
+{
+    static int lastMatch = -1;
+    static int dirn = 1;
+
+    if(key == '\r' || key == '\x1b')
+    {
+        //resetting values
+        lastMatch = -1; 
+        dirn = 1;
+        return;
+    }
+    else if(key == ARROW_DOWN || key == ARROW_RIGHT)
+    {
+        dirn = 1;
+    }
+    else if(key == ARROW_LEFT || key == ARROW_UP)
+    {
+        dirn = -1;
+    }
+    else
+    {
+        lastMatch = -1; 
+        dirn = 1;
+    }
+    if(lastMatch == -1) dirn = 1; //be default go fwd
+    int current = lastMatch;
+    int i;
+    for(i = 0; i<config.numrow; i++)
+    {
+        current += dirn;
+
+        //jmp to last row if too many back arrows
+        //basically wrap around
+        if(current == -1) current = config.numrow - 1;
+        else if(current == config.numrow) current = 0;
+
+        erow *row = &config.row[current];
+        char *match = strstr(row->render, query);
+        if(match)
+        {
+            lastMatch = current;
+            config.cy = current;
+            config.cy = i; //Jump to that line
+            config.cx = RowRxToCx(row, match-row->render); //jump to that position in line
+            config.rowOff = config.numrow;
+            break;
+        }
+    }
+}
+void findText()
+{
+    int origCx = config.cx;
+    int origCy = config.cy;
+    int origColOff = config.colOff;
+    int origRowOff = config.rowOff;
+    char *query = promptUser("Search: %s (ESC to cancel)", findCallback);
+    if(query)
+    {
+        free(query);
+    }
+    else
+    {
+        config.cx = origCx;
+        config.cy = origCy;
+        config.colOff = origColOff;
+        config.rowOff = origRowOff;     
+    }
+    
+}
+
+
 /**Append Buffer**/
 
 /**
@@ -469,7 +558,7 @@ int readKey()
 }
 
 
-char *promptUser(char *prompt)
+char *promptUser(char *prompt, void(*callback)(char *, int))
 {
     size_t bufsize = 128;
     char *buf = malloc(bufsize); //Stores user input
@@ -490,12 +579,14 @@ char *promptUser(char *prompt)
             if(buflen != 0)
             {
                 setStatusMsg("");
+                if (callback) callback(buf, c);
                 return buf;
             }
         }
         else if(c == '\x1b') //Esc to cancel
         {
             setStatusMsg("");
+            if (callback) callback(buf, c);
             free(buf);
             return NULL;
         }
@@ -509,6 +600,7 @@ char *promptUser(char *prompt)
             buf[buflen++] = c;
             buf[buflen] = 0;
         }
+        if (callback) callback(buf, c);
     }
 }
 /**
@@ -627,6 +719,9 @@ void processKeyPress()
             break;
         case '\x1b':
             break;
+        case CTRL('f'):
+            findText();
+            break;
         default:
             insertChar(c);
             break;
@@ -707,7 +802,7 @@ void scroll()
     config.rx = 0;
     if(config.cy<config.numrow)
     {
-        config.rx = CxToRx(&config.row[config.cy], config.cx);
+        config.rx = RowCxToRx(&config.row[config.cy], config.cx);
     }
     if(config.cy<config.rowOff)
     {
@@ -910,7 +1005,7 @@ int main(int argc, char *argv[])
     {
         editorOpen(argv[1]);
     }
-    setStatusMsg("HELP: Ctrl-Q = quit | Ctrl-S = save");
+    setStatusMsg("HELP: Ctrl-Q = quit | Ctrl-S = save | Ctrl-F = find");
     while(1)
     {
         refreshScreen();
